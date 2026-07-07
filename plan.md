@@ -59,16 +59,26 @@ if !model.supports_vision && has_image_blocks(&messages) {
 
 The interception must happen **before** the request is sent upstream, and **before** tool/MCP skill invocation (which happens after the model responds).
 
-### Step 4: Configuration
+### Step 4: Configuration (per-supplier)
 
-Add three settings (stored via existing settings infrastructure):
+Add vision analysis fields to the existing RelayProfile struct in settings.rs:
 
-- `vision_api_key` -- API key for the vision provider
-- `vision_model` -- model name (e.g. `qwen-vl-plus`)
-- `vision_base_url` -- API endpoint
-- `vision_enabled` -- toggle
+- ision_enabled: bool
+- ision_api_key: String
+- ision_model: String
+- ision_base_url: String
 
-Add corresponding UI in the Manager frontend.
+These are per-supplier settings (not global), because each supplier may use a different vision provider.
+
+**UI design (in supplier config panel):**
+
+- Add a checkbox labeled: Support vision recognition for text-only models
+- Only when checked, the following sub-fields become visible/editable:
+  - Vision API Key
+  - Vision Model
+  - Vision Base URL
+
+Settings are serialized into config.toml via the existing SettingsStore.
 
 ### Step 5: Session recovery
 
