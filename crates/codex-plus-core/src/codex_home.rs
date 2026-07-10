@@ -1,14 +1,6 @@
 use std::path::PathBuf;
 
 pub fn default_codex_home_dir() -> PathBuf {
-    // 优先检查 CODEX_PLUS_HOME（fork 专用环境变量，目录无需预先存在）
-    if let Some(path) = std::env::var_os("CODEX_PLUS_HOME")
-        .map(PathBuf::from)
-        .filter(|p| !p.as_os_str().is_empty() && !p.to_string_lossy().trim().is_empty())
-    {
-        return path;
-    }
-    // 其次兼容上游 CODEX_HOME
     std::env::var_os("CODEX_HOME")
         .map(PathBuf::from)
         .filter(|path| codex_home_env_dir_is_valid(path))
@@ -21,8 +13,8 @@ fn codex_home_env_dir_is_valid(path: &PathBuf) -> bool {
 
 fn default_user_codex_home_dir() -> PathBuf {
     directories::BaseDirs::new()
-        .map(|dirs| dirs.home_dir().join(".codex-plus"))
-        .unwrap_or_else(|| PathBuf::from(".codex-plus"))
+        .map(|dirs| dirs.home_dir().join(".codex"))
+        .unwrap_or_else(|| PathBuf::from(".codex"))
 }
 
 #[cfg(test)]

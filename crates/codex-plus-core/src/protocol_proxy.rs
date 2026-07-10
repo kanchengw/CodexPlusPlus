@@ -1,6 +1,6 @@
-//! Codex Responses API 与 OpenAI Chat Completions 的本地协议转换
+//! Codex Responses API 与 OpenAI Chat Completions 的本地协议转换。
 //!
-//! Codex Chat 与 Responses 协议之间的转换实现
+//! Codex Chat 与 Responses 协议之间的转换实现。
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
@@ -342,7 +342,7 @@ pub async fn send_upstream_request_with_header_timeout(
 ) -> anyhow::Result<reqwest::Response> {
     tokio::time::timeout(timeout, request.send())
         .await
-        .with_context(|| format!("上游请求超过 {} 秒未返回响应", timeout.as_secs()))?
+        .with_context(|| format!("上游请求超过 {} 秒未返回响应头", timeout.as_secs()))?
         .context("上游请求失败")
 }
 
@@ -514,7 +514,7 @@ async fn open_responses_proxy_request_with_settings_and_user_agent(
     for (attempt, relay) in relays.into_iter().enumerate() {
         validate_upstream(&relay)?;
         let (endpoint, upstream_body, wire_api) =
-            upstream_request_parts(&relay, request_json.clone()).await?;
+            upstream_request_parts(&relay, request_json.clone())?;
         let has_more_candidates = attempt + 1 < relay_count;
         let header_timeout = response_header_timeout(is_stream);
         let _ = crate::diagnostic_log::append_diagnostic_log(
@@ -681,39 +681,20 @@ pub async fn open_chat_completions_proxy_request(
     let settings = SettingsStore::default().load().unwrap_or_default();
     let relay = settings.active_relay_profile();
     if relay.protocol != RelayProtocol::ChatCompletions {
-        anyhow::bail!("褰撳墠涓浆鏈惎鐢?Chat Completions 鍗忚浠ｇ悊");
+        anyhow::bail!("当前中转未启用 Chat Completions 协议代理");
     }
     if relay.base_url.trim().is_empty() {
-        anyhow::bail!("Chat Completions 涓婃父 Base URL 涓嶈兘涓虹┖");
+        anyhow::bail!("Chat Completions 上游 Base URL 不能为空");
     }
     if relay.api_key.trim().is_empty() {
-        anyhow::bail!("Chat Completions 涓婃父 Key 涓嶈兘涓虹┖");
+        anyhow::bail!("Chat Completions 上游 Key 不能为空");
     }
 
-    let mut request_json: Value = serde_json::from_str(body)?;
+    let request_json: Value = serde_json::from_str(body)?;
     let is_stream = request_json
         .get("stream")
         .and_then(Value::as_bool)
         .unwrap_or(false);
-
-    // VLM: strip image blocks for text-only models (same logic as Responses path).
-    let model = request_json.get("model").and_then(Value::as_str).unwrap_or("");
-    if !model.is_empty()
-        && crate::vision::should_process(model, &relay.model_vlm)
-        && !relay.vlm_api_key.is_empty()
-        && !relay.vlm_model.is_empty()
-        && !relay.vlm_base_url.is_empty()
-    {
-        let vlm_config = crate::vision::VlmConfig {
-            api_key: relay.vlm_api_key.clone(),
-            model: relay.vlm_model.clone(),
-            base_url: relay.vlm_base_url.clone(),
-        };
-        if let Some(messages) = request_json.get_mut("messages").and_then(Value::as_array_mut) {
-            crate::vision::strip_image_blocks(messages, &vlm_config).await;
-        }
-    }
-
     let upstream = crate::http_client::proxied_client(&effective_user_agent(
         &relay.user_agent,
         original_user_agent,
@@ -749,49 +730,22 @@ fn response_header_timeout(is_stream: bool) -> Duration {
     }
 }
 
-async fn upstream_request_parts(
+fn upstream_request_parts(
     relay: &crate::settings::RelayProfile,
     request_json: Value,
 ) -> anyhow::Result<(String, Value, UpstreamWireApi)> {
-    let mut body = match relay.protocol {
-        RelayProtocol::Responses => request_json,
-        RelayProtocol::ChatCompletions => responses_to_chat_completions(request_json)?,
-    };
-
-    // Strip image blocks when VLM is enabled for this model.
-    // Vision-capable models without VLM pass images through as-is.
-    let model = body.get("model").and_then(Value::as_str).unwrap_or("");
-    if !model.is_empty()
-        && crate::vision::should_process(model, &relay.model_vlm)
-        && !relay.vlm_api_key.is_empty()
-        && !relay.vlm_model.is_empty()
-        && !relay.vlm_base_url.is_empty()
-    {
-        let vlm_config = crate::vision::VlmConfig {
-            api_key: relay.vlm_api_key.clone(),
-            model: relay.vlm_model.clone(),
-            base_url: relay.vlm_base_url.clone(),
-        };
-
-        for key in &["messages", "input"] {
-            if let Some(arr) = body.get_mut(key).and_then(Value::as_array_mut) {
-                crate::vision::strip_image_blocks(arr, &vlm_config).await;
-            }
-        }
+    match relay.protocol {
+        RelayProtocol::Responses => Ok((
+            responses_url(&relay.base_url),
+            request_json,
+            UpstreamWireApi::Responses,
+        )),
+        RelayProtocol::ChatCompletions => Ok((
+            chat_completions_url(&relay.base_url),
+            responses_to_chat_completions(request_json)?,
+            UpstreamWireApi::ChatCompletions,
+        )),
     }
-
-    let wire_api = match relay.protocol {
-        RelayProtocol::Responses => UpstreamWireApi::Responses,
-        RelayProtocol::ChatCompletions => UpstreamWireApi::ChatCompletions,
-    };
-    Ok((
-        match relay.protocol {
-            RelayProtocol::Responses => responses_url(&relay.base_url),
-            RelayProtocol::ChatCompletions => chat_completions_url(&relay.base_url),
-        },
-        body,
-        wire_api,
-    ))
 }
 
 fn upstream_request_builder(
@@ -815,10 +769,10 @@ fn upstream_request_builder(
 
 fn validate_upstream(relay: &crate::settings::RelayProfile) -> anyhow::Result<()> {
     if relay.base_url.trim().is_empty() {
-        anyhow::bail!("涓婃父 Base URL 涓嶈兘涓虹┖");
+        anyhow::bail!("上游 Base URL 不能为空");
     }
     if relay.api_key.trim().is_empty() {
-        anyhow::bail!("涓婃父 Key 涓嶈兘涓虹┖");
+        anyhow::bail!("上游 Key 不能为空");
     }
     Ok(())
 }

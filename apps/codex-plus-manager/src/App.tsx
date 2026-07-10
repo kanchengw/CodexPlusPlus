@@ -208,10 +208,6 @@ export type RelayProfile = {
   autoCompactLimit: string;
   modelList: string;
   modelWindows: string;
-  modelVlm: string;
-  vlmApiKey: string;
-  vlmModel: string;
-  vlmBaseUrl: string;
   userAgent: string;
   aggregate?: RelayAggregateConfig | null;
 };
@@ -722,10 +718,6 @@ const defaultSettings: BackendSettings = {
       autoCompactLimit: "",
       modelList: "",
       modelWindows: "",
-      modelVlm: "",
-      vlmApiKey: "",
-      vlmModel: "",
-      vlmBaseUrl: "",
       userAgent: "",
     },
   ],
@@ -3877,7 +3869,7 @@ function RelayProfileDetail({
 }) {
   const [draft, setDraft] = useState<RelayProfile>(profile);
   const [modelWindowRows, setModelWindowRows] = useState<ModelWindowRow[]>(
-    modelWindowRowsFromProfile(profile.modelList, profile.modelWindows || "", profile.modelVlm),
+    modelWindowRowsFromProfile(profile.modelList, profile.modelWindows || ""),
   );
   const isActive = !isNew && profile.id === form.activeRelayId;
   const profileUsesLiveFiles = relayProfileUsesLiveFiles(profile);
@@ -3894,12 +3886,12 @@ function RelayProfileDetail({
             : profile,
         );
     setDraft(nextDraft);
-    setModelWindowRows(modelWindowRowsFromProfile(nextDraft.modelList, nextDraft.modelWindows || "", nextDraft.modelVlm));
+    setModelWindowRows(modelWindowRowsFromProfile(nextDraft.modelList, nextDraft.modelWindows || ""));
   }, [profile.id, profile.modelList, profile.modelWindows, profileUsesLiveFiles, isActive, isNew, relayFiles?.configContents, relayFiles?.authContents]);
   const validationError = isAggregateRelayProfile(draft) ? aggregateRelayProfileValidation(draft) : null;
   const draftWithModelRows = () => {
     const serializedRows = serializeModelWindowRows(modelWindowRows);
-    return { ...draft, modelList: serializedRows.modelList, modelWindows: serializedRows.modelWindows, modelVlm: serializedRows.modelVlm };
+    return { ...draft, modelList: serializedRows.modelList, modelWindows: serializedRows.modelWindows };
   };
   const saveDraft = async () => {
     if (validationError) return;
@@ -4036,7 +4028,7 @@ function RelayProfileEditor({
   };
   const removeModelWindowRow = (index: number) => {
     const nextRows = modelWindowRows.filter((_, rowIndex) => rowIndex !== index);
-    setModelWindowRows(nextRows.length ? nextRows : [{ model: "", window: "", vlm: false }]);
+    setModelWindowRows(nextRows.length ? nextRows : [{ model: "", window: "" }]);
   };
   const addModelWindowRows = (rows: ModelWindowRow[]) => {
     setModelWindowRows(mergeModelWindowRows(modelWindowRows, rows));
@@ -4234,47 +4226,36 @@ function RelayProfileEditor({
               <div className="relay-model-row relay-model-row-head">
                 <span>{t("模型名称")}</span>
                 <span>{t("上下文窗口")}</span>
+                <span />
               </div>
               {modelWindowRows.map((row, index) => (
-                <div key={`${index}-${row.model}`}>
-                  <div className="relay-model-row">
-                    <Input
-                      value={row.model}
-                      onChange={(event) => updateModelWindowRow(index, { model: event.currentTarget.value })}
-                      placeholder="deepseek/deepseek-v4-flash"
-                    />
-                    <Input
-                      value={row.window}
-                      onChange={(event) => updateModelWindowRow(index, { window: event.currentTarget.value })}
-                      placeholder="1M"
-                    />
-                  </div>
-                  <div className="relay-model-row-actions">
-                    <label className="flex items-center gap-1 text-xs whitespace-nowrap">
-                      <input
-                        type="checkbox"
-                        checked={row.vlm}
-                        onChange={(e) => updateModelWindowRow(index, { vlm: e.currentTarget.checked })}
-                      />
-                      Use VLM
-                    </label>
-                    <Button
-                      aria-label={t("删除模型")}
-                      onClick={() => removeModelWindowRow(index)}
-                      size="icon"
-                      title={t("删除模型")}
-                      type="button"
-                      variant="ghost"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
+                <div className="relay-model-row" key={`${index}-${row.model}`}>
+                  <Input
+                    value={row.model}
+                    onChange={(event) => updateModelWindowRow(index, { model: event.currentTarget.value })}
+                    placeholder="deepseek/deepseek-v4-flash"
+                  />
+                  <Input
+                    value={row.window}
+                    onChange={(event) => updateModelWindowRow(index, { window: event.currentTarget.value })}
+                    placeholder="1M"
+                  />
+                  <Button
+                    aria-label={t("删除模型")}
+                    onClick={() => removeModelWindowRow(index)}
+                    size="icon"
+                    title={t("删除模型")}
+                    type="button"
+                    variant="ghost"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
                 </div>
               ))}
             </div>
             <div className="relay-model-list-tools">
               <Button
-                onClick={() => setModelWindowRows([...modelWindowRows, { model: "", window: "", vlm: false }])}
+                onClick={() => setModelWindowRows([...modelWindowRows, { model: "", window: "" }])}
                 size="sm"
                 type="button"
                 variant="secondary"
@@ -4291,7 +4272,7 @@ function RelayProfileEditor({
                     modelWindows: serializedRows.modelWindows,
                   });
                   if (models?.length) {
-                    addModelWindowRows(models.map((model) => ({ model, window: "", vlm: false })));
+                    addModelWindowRows(models.map((model) => ({ model, window: "" })));
                   }
                 }}
                 size="sm"
@@ -4306,35 +4287,6 @@ function RelayProfileEditor({
               {t("每行一个模型；上下文窗口可填")} <code>1M</code>{t("、")}<code>200K</code> {t("或")} <code>1000000</code>{t("，留空表示使用 Codex 默认长度。")}
             </p>
           </Field>
-        ) : null}
-        {showApiFields && modelWindowRows.some((row) => row.vlm) ? (
-          <div className="relay-vlm-section">
-            <div className="relay-vlm-section-header">{t("Vision Analysis Provider")}</div>
-            <Field className="relay-field-vlm-api-key" label={t("VLM API Key")}>
-              <Input
-                value={profile.vlmApiKey}
-                onChange={(event) => updateDraft({ vlmApiKey: event.currentTarget.value })}
-                placeholder="sk-..."
-              />
-            </Field>
-            <Field className="relay-field-vlm-model" label={t("VLM Model")}>
-              <Input
-                value={profile.vlmModel}
-                onChange={(event) => updateDraft({ vlmModel: event.currentTarget.value })}
-                placeholder="qwen-vl-plus"
-              />
-            </Field>
-            <Field className="relay-field-vlm-base-url" label={t("VLM Base URL")}>
-              <Input
-                value={profile.vlmBaseUrl}
-                onChange={(event) => updateDraft({ vlmBaseUrl: event.currentTarget.value })}
-                placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"
-              />
-            </Field>
-            <p className="field-hint">
-              {t("使用 OpenAI 兼容的视觉语言模型分析图片内容，将图片描述注入到不支持视觉的模型中。")}
-            </p>
-          </div>
         ) : null}
         {showApiFields ? (
           <Field className="relay-field-user-agent" label="User-Agent">
@@ -6018,10 +5970,6 @@ function normalizeSettings(settings: BackendSettings): BackendSettings {
             autoCompactLimit: "",
             modelList: "",
             modelWindows: "",
-            modelVlm: "",
-            vlmApiKey: "",
-            vlmModel: "",
-            vlmBaseUrl: "",
             userAgent: "",
           },
         ];
@@ -6753,10 +6701,6 @@ function createRelayProfile(settings: BackendSettings): RelayProfile {
     autoCompactLimit: "",
     modelList: "",
     modelWindows: "",
-    modelVlm: "",
-    vlmApiKey: "",
-    vlmModel: "",
-    vlmBaseUrl: "",
     userAgent: "",
   };
   return withGeneratedRelayFiles(next);
@@ -6787,10 +6731,6 @@ function createAggregateRelayProfile(settings: BackendSettings): RelayProfile {
       autoCompactLimit: "",
       modelList: "",
       modelWindows: "",
-      modelVlm: "",
-      vlmApiKey: "",
-      vlmModel: "",
-      vlmBaseUrl: "",
       userAgent: "",
       aggregate: {
         strategy: "failover",
