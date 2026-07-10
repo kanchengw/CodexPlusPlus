@@ -690,11 +690,30 @@ pub async fn open_chat_completions_proxy_request(
         anyhow::bail!("Chat Completions 涓婃父 Key 涓嶈兘涓虹┖");
     }
 
-    let request_json: Value = serde_json::from_str(body)?;
+    let mut request_json: Value = serde_json::from_str(body)?;
     let is_stream = request_json
         .get("stream")
         .and_then(Value::as_bool)
         .unwrap_or(false);
+
+    // VLM: strip image blocks for text-only models (same logic as Responses path).
+    let model = request_json.get("model").and_then(Value::as_str).unwrap_or("");
+    if !model.is_empty()
+        && crate::vision::should_process(model, &relay.model_vlm)
+        && !relay.vlm_api_key.is_empty()
+        && !relay.vlm_model.is_empty()
+        && !relay.vlm_base_url.is_empty()
+    {
+        let vlm_config = crate::vision::VlmConfig {
+            api_key: relay.vlm_api_key.clone(),
+            model: relay.vlm_model.clone(),
+            base_url: relay.vlm_base_url.clone(),
+        };
+        if let Some(messages) = request_json.get_mut("messages").and_then(Value::as_array_mut) {
+            crate::vision::strip_image_blocks(messages, &vlm_config).await;
+        }
+    }
+
     let upstream = crate::http_client::proxied_client(&effective_user_agent(
         &relay.user_agent,
         original_user_agent,
@@ -745,6 +764,8 @@ async fn upstream_request_parts(
     if !model.is_empty()
         && crate::vision::should_process(model, &relay.model_vlm)
         && !relay.vlm_api_key.is_empty()
+        && !relay.vlm_model.is_empty()
+        && !relay.vlm_base_url.is_empty()
     {
         let vlm_config = crate::vision::VlmConfig {
             api_key: relay.vlm_api_key.clone(),
